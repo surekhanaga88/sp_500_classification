@@ -103,14 +103,14 @@ def derive_features(fred_series,sp_data):
     jpy_change = jpy.pct_change()
     gbp_change = gbp.pct_change()
     cny_change = cny.pct_change()
-    data_0 = pd.concat([sp_var5,sp_var10,sp_var21,ig_spread,ig_change,hy_spread,hy_change,wti_change,treas3m_change,treas5y_change,treas10y_change,treas30y_change,binf5_change,binf10_change,y10_y2,y10_m3,y10_m3change,y10_y2change,vix_change,eur_change,jpy_change,gbp_change,cny_change],axis=1)
-    data_0 = interpolate_na(data_0)
-    num_data,num_feature = data_0.shape
+    data_features = pd.concat([sp_var5,sp_var10,sp_var21,ig_spread,ig_change,hy_spread,hy_change,wti_change,treas3m_change,treas5y_change,treas10y_change,treas30y_change,binf5_change,binf10_change,y10_y2,y10_m3,y10_m3change,y10_y2change,vix_change,eur_change,jpy_change,gbp_change,cny_change],axis=1)
+    data_features = interpolate_na(data_features)
+    num_data,num_feature = data_features.shape
     feature_num = [f'f_{col}' for col in range(num_feature)]
-    data_0.columns = feature_num
-    data_0 = data_0.drop(index=data_0.index[0],axis=0)
+    data_features.columns = feature_num
+    data_features = data_features.drop(index=data_features.index[0],axis=0)
 
-    return data_0,feature_num,sp_return5,sp_return10,sp_return15
+    return data_features,feature_num,sp_return5,sp_return10,sp_return15
 
 
 
@@ -276,7 +276,7 @@ def plot_predictions(f_horizon,predictions,percentile,data):
     fig, ax = plt.subplots(figsize=(15,15),nrows = 3,ncols=1)
     fig.suptitle(f'Probability of return < {percentile}th percentile in next {f_horizon} days',x=0.5,y=0.9)
     #First subplot
-    predictions_df = pd.DataFrame(predictions,index=data_0.index)
+    predictions_df = pd.DataFrame(predictions,index=data.index)
     ax[0].plot(predictions_df,color = 'grey',label='full sample')
     ax[0].legend()
     
