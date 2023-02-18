@@ -1,0 +1,14 @@
+click==7.1.2
+fredapi==0.5.0
+lightgbm==3.3.5
+matplotlib==3.3.4
+numpy==1.22.4
+pandas==1.2.4
+pandas_datareader==0.10.0
+python-dotenv==0.21.1
+scikit_learn==1.2.1
+seaborn==0.11.1
+setuptools==52.0.0.post20210125
+shap==0.41.0
+yahoo_fin==0.8.9.1
+yfinance==0.1.70

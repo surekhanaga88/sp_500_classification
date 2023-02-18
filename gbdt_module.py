@@ -8,7 +8,7 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import cross_validate
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score,roc_curve
 from sklearn.preprocessing import StandardScaler
 import yfinance as yf
 from yahoo_fin.stock_info import get_earnings_history
@@ -216,7 +216,7 @@ def validate(saved_model,x_valid,y_valid_target):
 #    return bst,y_pred_valid,auc_loaded_model
 
 #Check final model against test data
-def test_final_model(saved_model,x_test,y_test_target):
+def test_final_model(saved_model,x_test,y_test_target,model_name):
     #load model to predict on test data
     bst = lgb.Booster(model_file=saved_model)
     # Now we evaluate on the test dataset
@@ -225,6 +225,11 @@ def test_final_model(saved_model,x_test,y_test_target):
     auc_test_model = roc_auc_score(y_test_target,y_pred_test)
     print(f"Test - The ROC AUC of model's prediction is: {auc_test_model}")
     return bst,y_pred_test,auc_test_model
+
+    
+
+
+    
 
 def full_sample_model(params,lgb_train,num_boost,valid_set,feature_num,stopping_rounds,data_full_sample,y_full_sample,learning_param):
     #First rounds
@@ -253,19 +258,37 @@ def full_sample_predict(saved_model,data_full_sample,y_full_sample):
     #evaluate on validation data
     auc_full_model = roc_auc_score(y_full_sample,y_pred_final)
     print(f"Full sample training - The ROC AUC of model's prediction is: {auc_full_model}")
-    return full_sample_preds,auc_full_model
+    return y_pred_final,auc_full_model
+
+
+def plot_roc_curve(y_full_sample,y_pred_final,auc_full_model,model_name):
+    false_pos_rate,true_pos_rate,thresholds = roc_curve(y_full_sample,y_pred_final)
+    fig = plt.figure(figsize=(10,8),dpi=100)
+    plt.axis('scaled')
+    plt.xlim([0,1])
+    plt.ylim([0,1])
+    plt.title("ROC Curve - Full sample")
+    plt.plot(false_pos_rate,true_pos_rate,'grey')
+    plt.text(0.95, 0.05, 'AUC = %0.4f' % auc_full_model, ha='right')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    roc_plot_name = model_name + '_roc_curve.png'
+    plt.savefig(roc_plot_name,dpi=700)
 
 #Plot SHAP Values
-def plot_shap(final_model,data,feature_names):
+def plot_shap(final_model,data,feature_names,model_name):
     final_model.params['objective'] = 'binary'
     explainer = shap.TreeExplainer(final_model)
     shap_values = explainer.shap_values(data)
     #print(f"shap values: {shap_values}")
     #Average shap values
-    shap.summary_plot(shap_values,data,feature_names=feature_names)
+    shap.summary_plot(shap_values,data,feature_names=feature_names,show=False)
+    shap_plot_name = model_name + '_shap.png'
+    plt.savefig(shap_plot_name,dpi=700)
+    #plt.show()
 
 #Plot model predictions
-def plot_predictions(f_horizon,predictions,percentile,data):
+def plot_predictions(f_horizon,predictions,percentile,data,model_name):
     oos_dates = []
     for x in range(1,f_horizon+1):
         oos_dates.append(data.index[-1]+timedelta(days=x))
@@ -289,4 +312,296 @@ def plot_predictions(f_horizon,predictions,percentile,data):
     ax[2].legend()
     ax[2].set_title(f'{f_horizon}-day ahead projections')
 
+    pred_plot_name = model_name + '_preds.png'
+    plt.savefig(pred_plot_name,dpi=700)
+    #plt.show()
 
+
+def train_test_pickle(x_train,x_valid,y_train,y_valid,x_test,y_test,col_index,num_boost,f_horizon,params,feature_num,model_name,full_sample_data,full_sample_y,full_data,f_names,percentile):
+    #create a dataset for lightgbm
+    lgb_train= lgb.Dataset(x_train,y_train.iloc[:,col_index],free_raw_data=False)
+    lgb_eval = lgb.Dataset(x_valid,y_valid.iloc[:,col_index],reference=lgb_train,free_raw_data=False)
+    y_train_target = y_train.iloc[:,col_index]
+    y_valid_target = y_valid.iloc[:,col_index]
+    y_test_target = y_test.iloc[:,col_index]
+    valid_set = lgb_train
+    ######Start training first 10 rounds ######
+    gbm,y_pred_train,auc_train_model = train_first_rounds(params,lgb_train,num_boost,valid_set,feature_num,x_train,y_train_target)
+    gbm.save_model(model_name + '.txt')
+    saved_model = model_name + '.txt'
+
+    ######Validate ######
+
+    bst,y_pred_valid,auc_loaded_model = validate(saved_model,x_valid,y_valid_target)
+
+    ######Start training next 10 rounds with learning decay ######
+    prev_model = gbm
+    valid_set = lgb_eval
+    learning_param = 0.05
+    gbm,y_pred_train,auc_train_model = train_second_rounds(params,lgb_train,num_boost,prev_model,valid_set,feature_num,x_train,y_train_target,learning_param)
+    gbm.save_model(model_name+'_learning_decay.txt')
+    saved_model = model_name+'_learning_decay.txt'
+
+    ######Validate ######
+
+    bst,y_pred_valid,auc_loaded_model = validate(saved_model,x_valid,y_valid_target)
+
+    ######Start training next 10 rounds with early stopping ######
+    prev_model = gbm
+    stopping_rounds = 5
+    gbm,y_pred_train,auc_train_model = train_third_rounds(params,lgb_train,num_boost,prev_model,valid_set,feature_num,stopping_rounds,x_train,y_train_target)
+    gbm.save_model(model_name+'_early_stopping.txt')
+    saved_model = model_name+'_early_stopping.txt'
+
+    ######Validate ######
+    bst,y_pred_valid,auc_loaded_model = validate(saved_model,x_valid,y_valid_target)
+
+    ######Test ########
+    bst,y_pred_test,auc_test_model = test_final_model(saved_model,x_test,y_test_target,model_name)
+
+    ######Full sample model run ######
+    lgb_train = lgb.Dataset(full_sample_data,full_sample_y.iloc[:,col_index],free_raw_data=False)
+    valid_set = lgb_train
+    data_full_sample = full_sample_data
+    y_full_sample = full_sample_y.iloc[:,col_index]
+
+    gbm = full_sample_model(params,lgb_train,num_boost,valid_set,feature_num,stopping_rounds,data_full_sample,y_full_sample,learning_param)
+    gbm.save_model(model_name +'_full_sample.txt')
+    saved_model = model_name +'_full_sample.txt'
+
+    y_pred_final,auc_full_model =  full_sample_predict(saved_model,data_full_sample,y_full_sample)
+
+    #######Pickled#######
+    pkl_name = str(f_horizon) + 'd' + str(col_index+1) + '.pkl'
+    with open(pkl_name,'wb') as fout:
+        pickle.dump(gbm,fout)
+
+    ######Sample including the last f_horizon days#######
+    with open(pkl_name,'rb') as fin:
+        pkl_model = pickle.load(fin)
+
+    y_pred = pkl_model.predict(full_data)
+
+    ######Feature importance######
+    #print(f"Fetaure importances: {list(gbm.feature_importance())}")
+    #SHAP values
+    plot_shap(gbm,full_data,f_names,model_name)
+
+    ######plot model predictions#####
+    
+    plot_predictions(f_horizon,y_pred,percentile,full_data,model_name)
+    
+  
+    plot_roc_curve(y_full_sample,y_pred_final,auc_full_model,model_name)
+
+######################################################## #Model parameters ################################################################################################
+
+##########5-day model ################
+
+params_5d1 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'is_training_mteric': True,
+    'metric': 'binary_logloss',
+    'num_leaves':20, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
+params_5d2 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':20, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.8,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+params_5d3 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':18, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_5d4 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':42, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.6,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_5d5 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':14, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.4,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+########## 10-day model ################
+
+
+params_10d1 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'is_training_mteric': True,
+    'metric': 'binary_logloss',
+    'num_leaves':16, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.6,
+    'bagging_freq':5,
+    'verbose': 0
+}
+params_10d2 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':27, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.8,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+params_10d3 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':41, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.8,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_10d4 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':31, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.6,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_10d5 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':15, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.6,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+############## 15-day model #############
+
+
+
+
+params_15d1 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'is_training_mteric': True,
+    'metric': 'binary_logloss',
+    'num_leaves':16, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
+params_15d2 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':26, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.8,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+params_15d3 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':31, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_15d4 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':18, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
+
+
+params_15d5 = {
+    'bossting_type': 'gbdt',
+    'ojective': 'binary',
+    'metric': 'binary_logloss',
+    'is_training_metric': True,
+    'num_leaves':38, 
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction':0.7,
+    'bagging_freq':5,
+    'verbose': 0
+}
