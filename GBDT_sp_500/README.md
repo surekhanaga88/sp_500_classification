@@ -66,7 +66,6 @@ The GBM training uses 3 rounds and each model run saves intermittent training ou
 There is a requirements file as well as a setup file that can help make sure the requirements are met before running the models.
 
 ```
-cd GBDT_sp_500
 pip install -r requirements.txt
 pip install -e .
 ```
