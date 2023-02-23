@@ -59,6 +59,7 @@ def plot_predictions(f_horizon,predictions,percentile,data,model_name):
     ax[2].plot(oof_update,color='grey',label='out of sample forecasts',marker='o')
     ax[2].legend()
     ax[2].set_title(f'{f_horizon}-day ahead projections')
+    plt.xticks(rotation = 45)
 
     pred_plot_name = model_name + '_preds.png'
     plt.savefig(pred_plot_name,dpi=700)

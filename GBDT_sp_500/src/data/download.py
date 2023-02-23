@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import os
 
 
-
 def download_data(fred,series_from_fred,start_fred,ticker_yf,start_yf,interval,series_names):
     series_list = []
     for s in range(len(series_from_fred)):
@@ -15,3 +14,5 @@ def download_data(fred,series_from_fred,start_fred,ticker_yf,start_yf,interval,s
     series_list = pd.DataFrame(series_list).T 
     series_list.columns = series_names
     return series_list,yf_series
+
+

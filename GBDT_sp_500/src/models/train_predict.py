@@ -1,4 +1,4 @@
-
+import pandas as pd
 import lightgbm as lgb
 import shap
 from datetime import datetime,timedelta
@@ -77,6 +77,7 @@ def train_test_pickle(x_train,x_valid,y_train,y_valid,x_test,y_test,col_index,nu
 
     y_pred = pkl_model.predict(full_data)
 
+
     ######Feature importance######
     #print(f"Fetaure importances: {list(gbm.feature_importance())}")
     #SHAP values
@@ -88,3 +89,4 @@ def train_test_pickle(x_train,x_valid,y_train,y_valid,x_test,y_test,col_index,nu
     
   
     results.plot_roc_curve(y_full_sample,y_pred_final,auc_full_model,model_name)
+
