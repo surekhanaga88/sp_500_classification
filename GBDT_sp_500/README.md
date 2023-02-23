@@ -27,6 +27,7 @@ The model related scripts generate processed data - features and the target seri
 
 Other scripts contain custom functions for deriving features, training the models and predicting and generating visualiations.
 
+Notebooks show some data explorations as well as examples of model runs.
 
 ## Running the models
 
